@@ -7,9 +7,8 @@ char http_resp[] = {"HTTP/1.1 200 OK\r\nContent-Type: "};
 int find_size(char buf[]){
     char tmp_buf[MAXLINE];//strtok用
     strcpy(tmp_buf,buf);
-    char* len = strstr(tmp_buf,"Content-Length: ");
-    char* tmp;
-    tmp = strtok(len+16,"\r\n");
+    char*   tmp = strstr(tmp_buf,"Content-Length: ");
+    tmp = strtok(tmp+16,"\r\n");
     return (atoi(tmp));
     /*char* id = strstr(tmp_buf,"WebKitFormBoundary");
     //printf("POST1\n%s\n",tmp_buf);
@@ -21,7 +20,7 @@ int find_size(char buf[]){
     debug用*/
 }
 
-int find_name(char buf[], char filename[]){
+int find_name(char buf[], char filename[],char extension[]){
     char tmp_buf[MAXLINE];
     strcpy(tmp_buf,buf);
     char* tmp = strstr(tmp_buf,"filename=\"");
@@ -32,8 +31,26 @@ int find_name(char buf[], char filename[]){
     tmp = strtok(tmp,"\r\n");
     strcpy(filename,tmp+10);
     filename[strlen(filename)-1] = '\0';
+    tmp = strstr(filename,".");
+    tmp = tmp + 1;
+    strcpy(extension,tmp);
     //printf("filename = %s\n",filename);
     return 0;
+}
+
+void output_result(char filename[],char extension[]){
+    char error[20] = "格式錯誤（PNG)\n";
+    char success[100];
+    sprintf(success,"\"%s\" 上傳成功", filename);
+    int result_fd = open("./html/text/upload.txt",O_WRONLY | O_TRUNC);
+    if(strncmp(extension,"png",3) == 0){
+        write(result_fd,error,strlen(error));
+    }
+    else
+    {
+        write(result_fd,success,strlen(success));
+    }
+    close(result_fd);
 }
 
 void send_test(int sockfd)
@@ -44,6 +61,7 @@ void send_test(int sockfd)
     long ret;
     int fild_fd;
     int port;
+    char filename[100],extension[10];
     //getpeername -> ip/port
     struct sockaddr_storage addr;
     socklen_t len = sizeof(addr);
@@ -54,12 +72,12 @@ void send_test(int sockfd)
   
     long size_now_buf =read(sockfd,buf,MAXLINE);
     printf("%s:%d------>serv     %ld bytes\n",ipstr,port,size_now_buf);
-    
-    if((strncmp(buf,"GET /i",6)) == 0){//若符合
+    //printf("buf:\n%s\n",buf);
+    if((strncmp(buf,"GET /im",7)) == 0){//若符合
         sprintf(outbuf,"%s%s\r\n\r\n",http_resp,"image/jpg");
         fild_fd = open("./html/image/tte.jpg",O_RDONLY);
     }
-    else if((strncmp(buf,"GET / ",6)) == 0)
+    else if((strncmp(buf,"GET / ",6)) == 0 || strncmp(buf,"GET /index",10) == 0)
     {
         sprintf(outbuf,"%s%s\r\n\r\n",http_resp,"text/html");
         fild_fd = open("./html/index.html",O_RDONLY);
@@ -72,7 +90,17 @@ void send_test(int sockfd)
         sprintf(outbuf,"%s%s\r\n\r\n",http_resp,"image/jpg");
         fild_fd = open("./html/image/tte.jpg",O_RDONLY);
     }
+    else if((strncmp(buf,"GET /text/upload.txt",20)) == 0){
+        sprintf(outbuf,"%s%s\r\n\r\n",http_resp,"text/plain");
+        fild_fd = open("./html/text/upload.txt",O_RDONLY);
+    }
+    else if((strncmp(buf,"GET /complete.html",18) == 0)){
+        sprintf(outbuf,"%s%s\r\n\r\n",http_resp,"text/html");
+        fild_fd = open("./html/complete.html",O_RDONLY);
+    }
     else if((strncmp(buf,"POST",4)) == 0){
+       // sprintf(outbuf,"HTTP/1.1 200 OK\r\n\r\n");
+       // Writen(sockfd, outbuf, strlen(outbuf));
         int size_all = find_size(buf);
         char buf_POST[MAXLINE];
         long size_output;
@@ -98,16 +126,18 @@ void send_test(int sockfd)
         //printf("file_start:\n%s",file_start);
         //------------------------
         int size_head = (int)(file_start - post_start);//buf前段的非檔部份
-        printf("size_now_buf = size_now_buf - size_head = %d  - %d\n",size_now_buf, size_head);
+        //printf("size_now_buf = size_now_buf - size_head = %d  - %d\n",size_now_buf, size_head);
         size_now_buf = size_now_buf - size_head;//該buf剩下要讀的大小
         
-        char filename[50];
-        find_name(post_start,filename);
+        find_name(post_start,filename,extension);
         printf("%s:%d------>serv     %s\n",ipstr,port,filename);
         //printf("\nfilename=%s\n",filename);
-        char file_PATH[100];
+        char file_PATH[1000];
         //依照IP設檔案路徑～
-        sprintf(file_PATH,"./file/%s",filename);//設定檔案路徑
+        char folder[20];
+        sprintf(folder,"./file/%s",ipstr);
+        mkdir(folder,0777);
+        sprintf(file_PATH,"%s/%s",folder,filename);//設定檔案路徑
         FILE* output_fd = fopen(file_PATH,"wb+");
         int size_file = size_all - size_head - 46;//檔案大小=傳輸大小-頭-尾
         int size_now;  //目前讀完的檔案
@@ -118,19 +148,19 @@ void send_test(int sockfd)
         }
         else{
             size_output = fwrite(file_start,1,size_now_buf,output_fd);
-            printf("file_size %d/%d bytes\n",size_output,size_file); 
+            //printf("file_size %d/%d bytes\n",size_output,size_file); 
             size_now =  size_output;
         }
 
         int size_next = (size_file-size_now >= MAXLINE)?MAXLINE:size_file-size_now;
         while (size_now<size_file)
         {   
-            if(size_next < MAXLINE)
-                printf("read%dbytes....\n",size_next);
+            //if(size_next < MAXLINE)
+                //printf("read%dbytes....\n",size_next);
             int S = read(sockfd,buf_POST,size_next);
             //if(size_next < MAXLINE)
             //    printf("read%dbytes end\n",size_next);
-            printf("read size:%d/%d\n",size_now,size_file);
+            //printf("read size:%d/%d\n",size_now,size_file);
             n = fwrite(buf_POST,1, size_next,output_fd);
             //printf("wirte to output: %ld\n",n);    
             size_now += size_next;
@@ -140,7 +170,9 @@ void send_test(int sockfd)
         }
         fclose(output_fd);
         printf("Transfer end\nsocket_size= %d\nsize_now/size_file = %d/%d\n",size_all, size_now,size_file);
-        sprintf(outbuf,"HTTP/1.1 200 OK\r\n\r\n");
+        output_result(filename,extension);
+        sprintf(outbuf,"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n");
+        fild_fd = open("./html/upload.html",O_RDONLY);
     }
     else{
         sprintf(outbuf,"HTTP/1.1 404 NOOOOO\r\n");
@@ -149,9 +181,9 @@ void send_test(int sockfd)
 
 	while ( (ret = read(fild_fd,outbuf,4096))>0){
         n = write(sockfd,outbuf,ret);
-        //printf("write to sockfd: %ld\n",n);
     }
-    printf("serv    ------>%s:%d   HTTP/1.1 200 OK\n",ipstr,port,size_now_buf);
+    printf("serv          ------>%s:%d   HTTP/1.1 200 OK\n",ipstr,port);
+    close(fild_fd);
 }
 
 void sig_chld(int signo)
@@ -166,6 +198,9 @@ void sig_chld(int signo)
 
 int main(int argc, char **argv)
 {
+    int fd = open("./html/text/upload.txt",O_WRONLY | O_TRUNC);
+    write(fd,"輸出結果.......",strlen("輸出結果......."));
+    close(fd);
     int SERV_PORT2 = SERV_PORT;
     if(argc == 2){
         SERV_PORT2 = atoi(argv[1]);
@@ -186,8 +221,7 @@ int main(int argc, char **argv)
 	Bind(listenfd, (SA *) &servaddr, sizeof(servaddr));
 
 	Listen(listenfd, LISTENQ);
-    //char* ip;
-    //inet_ntop(AF_INET,servaddrsin_addr ,ip,sizeof(servaddr.sin_addr));
+
     printf("Listen at Port %d.......\n",SERV_PORT2);
 	Signal(SIGCHLD, sig_chld);	/* must call waitpid() */
 
