@@ -39,9 +39,10 @@ int find_name(char buf[], char filename[],char extension[]){
 }
 
 void output_result(char filename[],char extension[]){
-    char error[20] = "格式錯誤（PNG)\n";
+    char error[100];
     char success[100];
     sprintf(success,"\"%s\" 上傳成功", filename);
+    sprintf(error,"\"%s\" 格式錯誤",filename);
     int result_fd = open("./html/text/upload.txt",O_WRONLY | O_TRUNC);
     if(strncmp(extension,"png",3) == 0){
         write(result_fd,error,strlen(error));
@@ -171,7 +172,7 @@ void send_test(int sockfd)
         fclose(output_fd);
         printf("Transfer end\nsocket_size= %d\nsize_now/size_file = %d/%d\n",size_all, size_now,size_file);
         output_result(filename,extension);
-        sprintf(outbuf,"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n");
+        sprintf(outbuf,"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 444\r\n\r\n");
         fild_fd = open("./html/upload.html",O_RDONLY);
     }
     else{
@@ -182,7 +183,7 @@ void send_test(int sockfd)
 	while ( (ret = read(fild_fd,outbuf,4096))>0){
         n = write(sockfd,outbuf,ret);
     }
-    printf("serv          ------>%s:%d   HTTP/1.1 200 OK\n",ipstr,port);
+    printf("serv           ------>%s:%d   HTTP/1.1 200 OK\n",ipstr,port);
     close(fild_fd);
 }
 
